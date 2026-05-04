@@ -30,6 +30,9 @@ from isaacsim_msgs.msg import (
     Elevator,
     Floor,
     Material,
+    Pedestrian,
+    Skeleton,
+    PedestrianGoal,
     Prim,
     Scale,
     Wall,
@@ -483,7 +486,23 @@ class IsaacSimulator(BaseSim, NodeInterface):
                 )
             )
 
-        req = SpawnPedestrians.Request(pedestrians=items)
+            ped = Pedestrian()
+            ped.name = self._NS_PEDESTRIAN(pedestrian.sim_path)
+            ped.character_name = available_models[model_name]
+            ped.pose = pedestrian.pose.to_msg()
+            ped.controller_stats = False
+
+            # Initialize the new skeleton field
+            ped.skeleton = Skeleton()
+            ped.skeleton.joint_names = [] # Populate if you have data
+            ped.skeleton.joint_poses = []
+            ped.skeleton.confidences = []
+
+            on_success.append((pedestrian.name, model_name))
+            return ped
+
+        req = SpawnPedestrians.Request()
+        req.pedestrians = list(filter(None, await asyncio.gather(*map(impl, pedestrians))))
         res = await self._clients.SpawnPedestrians.call_timeout(req)
         if res is None:
             return tuple(False for _ in pedestrians)

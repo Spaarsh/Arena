@@ -13,10 +13,17 @@ from rclpy.qos import (
     QoSProfile,
     QoSReliabilityPolicy,
 )
+
+from arena_people_msgs.msg import Pedestrians, Pedestrian, Skeleton
+from visualization_msgs.msg import MarkerArray, Marker
+from geometry_msgs.msg import Vector3
+from std_msgs.msg import ColorRGBA
+
 from std_msgs.msg import ColorRGBA, Header
 from tf_transformations import quaternion_from_euler, quaternion_multiply
 from visualization_msgs.msg import Marker, MarkerArray
 
+import numpy as np
 
 class PedestrianMarkerPublisher(Node):
     """
@@ -47,8 +54,9 @@ class PedestrianMarkerPublisher(Node):
         )
 
         # Build namespaced topic names
-        pedestrians_topic = f"{namespace}/arena_peds"
-        marker_topic = f"{namespace}/pedestrian_markers"
+        clean_ns = namespace.strip("/")
+        pedestrians_topic = f"/{clean_ns}/arena_peds" if clean_ns else "/arena_peds"
+        marker_topic = f"/{clean_ns}/pedestrian_markers" if clean_ns else "/pedestrian_markers"
 
         # Subscriber to arena_peds topic
         self.pedestrians_subscriber = self.create_subscription(Pedestrians, pedestrians_topic, self.pedestrians_callback, pedestrians_qos)
@@ -68,6 +76,7 @@ class PedestrianMarkerPublisher(Node):
             "mesh_resource",
             "package://pal_gazebo_worlds/models/citizen_extras_male_03/meshes/mesh.dae",
         )
+        self.declare_parameter("skeleton_poses_local", True)
 
         self.get_logger().info("Pedestrian Marker Publisher initialized")
         self.get_logger().info(f"Subscribing to {pedestrians_topic}, publishing to {marker_topic}")
@@ -121,7 +130,45 @@ class PedestrianMarkerPublisher(Node):
                 orientation_marker = self._create_orientation_arrow(pedestrian, pedestrian_id, arrow_length, body_height, msg.header)
                 markers.append(orientation_marker)
 
-            # 5. Name Label
+            # 5. Skeleton (optional)
+            skeleton_local = self.get_parameter("skeleton_poses_local").value
+            if hasattr(pedestrian, "skeleton") and len(pedestrian.skeleton.joint_poses) > 0:
+                ns = f"ped_skeletons_{pedestrian.id}"
+                # Use a large offset to keep ids unique across pedestrians
+                base_id = int(pedestrian.id) * 1000
+                for j_idx, joint_pose in enumerate(pedestrian.skeleton.joint_poses):
+                    joint_marker = Marker()
+                    joint_marker.header = msg.header
+                    joint_marker.ns = ns
+                    joint_marker.id = base_id + j_idx
+                    joint_marker.type = Marker.SPHERE
+                    joint_marker.action = Marker.ADD
+
+                    # Decide whether joint_pose is local (relative to pedestrian) or already in world frame
+                    if skeleton_local:
+                        # Compose pedestrian.pose * joint_pose to put joint in world frame
+                        try:
+                            joint_marker.pose = compose_poses(pedestrian.pose, joint_pose)
+                        except Exception:
+                            # Fallback: use joint_pose directly
+                            joint_marker.pose = joint_pose
+                    else:
+                        joint_marker.pose = joint_pose
+
+                    joint_marker.scale = Vector3(x=0.05, y=0.05, z=0.05)
+
+                    # Color by confidence if available; ensure alpha > 0 so it's visible
+                    conf = 1.0
+                    if hasattr(pedestrian.skeleton, "confidences") and j_idx < len(pedestrian.skeleton.confidences):
+                        conf = float(pedestrian.skeleton.confidences[j_idx])
+                    joint_marker.color = ColorRGBA(r=max(0.0, 1.0 - conf), g=min(1.0, conf), b=0.0, a=max(0.15, conf))
+
+                    # Lifetime same as other markers (1 second)
+                    joint_marker.lifetime.sec = 1
+
+                    markers.append(joint_marker)
+
+            # 6. Name Label
             if show_labels:
                 label_marker = self._create_name_label(pedestrian, pedestrian_id, body_height, msg.header)
                 markers.append(label_marker)
@@ -284,6 +331,31 @@ class PedestrianMarkerPublisher(Node):
 
         return marker
 
+    def compose_poses(parent: Pose, child: Pose) -> Pose:
+        """Return parent * child (child expressed in parent's local frame -> world-frame)."""
+        # parent and child use (x,y,z,w) quaternion ordering as used by tf_transformations
+        parent_q = [parent.orientation.x, parent.orientation.y, parent.orientation.z, parent.orientation.w]
+        child_q = [child.orientation.x, child.orientation.y, child.orientation.z, child.orientation.w]
+
+        # Build parent transform matrix
+        T_parent = quaternion_matrix(parent_q)
+        T_parent[0:3, 3] = [parent.position.x, parent.position.y, parent.position.z]
+
+        # Child position (homogeneous)
+        child_pos = np.array([child.position.x, child.position.y, child.position.z, 1.0])
+        world_pos = T_parent.dot(child_pos)
+
+        # Combined orientation: qp * qc
+        comb_q = quaternion_multiply(parent_q, child_q)  # returns [x,y,z,w]
+
+        out = Pose()
+        out.position = Point(x=float(world_pos[0]), y=float(world_pos[1]), z=float(world_pos[2]))
+        out.orientation = Quaternion(x=comb_q[0], y=comb_q[1], z=comb_q[2], w=comb_q[3])
+        return out
+
+    def _create_name_label(
+        self, pedestrian: Pedestrian, pedestrian_id: int, body_height: float, header
+    ) -> Marker:
     def _create_name_label(self, pedestrian: Pedestrian, pedestrian_id: int, body_height: float, header: Header) -> Marker:
         """Create text marker with pedestrian name"""
         marker = Marker()

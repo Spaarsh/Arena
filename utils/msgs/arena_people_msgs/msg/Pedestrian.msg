@@ -18,3 +18,5 @@ uint8 CURIOUS = 5
 uint8 THREATENING = 6
 uint8 animation_state
 
+# Optional skeletal pose (per-joint poses). May be empty if not provided.
+Skeleton skeleton

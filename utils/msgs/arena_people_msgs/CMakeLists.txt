@@ -24,6 +24,7 @@ set(msg_files
   "msg/Pedestrian.msg"
   "msg/Pedestrians.msg"
   "msg/SpawnPedestrian.msg"
+  "msg/Skeleton.msg"
 )
 
 # Generate messages
