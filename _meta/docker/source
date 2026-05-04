@@ -94,7 +94,7 @@ do_run(){
     fi
 
     if [ -t 0 ] && [ -t 1 ]; then
-        arena_docker_compose exec "$arena_service" /entrypoint.sh \
+        arena_docker_compose exec -it "$arena_service" /entrypoint.sh \
             bash --rcfile /opt/arena_ws/src/Arena/_meta/docker/features/docker/rcfile -i
     else
         arena_docker_compose exec -T "$arena_service" /entrypoint.sh bash --norc "$@"
