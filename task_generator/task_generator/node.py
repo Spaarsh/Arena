@@ -6,7 +6,6 @@ import traceback
 import uuid
 
 import arena_robots.Robot
-import arena_runtime_msgs.action
 import arena_runtime_msgs.msg
 import arena_runtime_msgs.srv
 import arena_simulation_setup.tree.assets.Object

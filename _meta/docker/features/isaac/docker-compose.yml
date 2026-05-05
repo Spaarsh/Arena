@@ -26,10 +26,13 @@ services:
       - ARENA_ROS_DISTRO
       - HOST_UID
       - HOST_ARENA_WS_DIR
-      - ROS_DOMAIN_ID=1
+      - ROS_DOMAIN_ID
       - LLM_API_ENDPOINT
+    env_file:
+      - .env
     stdin_open: true
     tty: true
+    network_mode: host
     deploy:
       resources:
         reservations:
