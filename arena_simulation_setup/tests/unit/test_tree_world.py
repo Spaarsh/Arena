@@ -238,6 +238,31 @@ def test_world_save_load_roundtrip_corner_positions(tmp_path):
     assert loaded_corners[1].x == pytest.approx(3.0)
 
 
+def test_world_save_map_only_writes_map_skips_world_yaml(tmp_path):
+    from arena_simulation_setup.tree.World.World import World
+    w = World(tmp_path / "myworld")
+    wd = WorldDescription(zones=[_make_square_zone()])
+    w.save(wd, map_only=True)
+    assert (tmp_path / "myworld" / "map" / "map.yaml").exists()
+    assert not (tmp_path / "myworld" / "world.yaml").exists()
+
+
+def test_world_save_through_symlinked_subdir(tmp_path):
+    from arena_simulation_setup.tree.World.World import World
+    world_dir = tmp_path / "myworld"
+    world_dir.mkdir()
+    map_target = tmp_path / "shared_map"
+    map_target.mkdir()
+    (world_dir / "map").symlink_to(map_target, target_is_directory=True)
+
+    w = World(world_dir)
+    wd = WorldDescription(zones=[_make_square_zone()])
+    w.save(wd)
+
+    assert (map_target / "map.yaml").exists()
+    assert (world_dir / "world.yaml").exists()
+
+
 def test_world_scenario_listall_empty_when_no_scenarios_dir(tmp_path):
     from arena_simulation_setup.tree.World.World import World
     w = World(tmp_path / "myworld")

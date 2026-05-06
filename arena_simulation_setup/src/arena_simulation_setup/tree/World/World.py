@@ -228,19 +228,13 @@ class World(PathView):
         os.makedirs(self.path, exist_ok=True)
         tarball = world.export(**kwargs)
 
-        if not hasattr(tarfile, 'data_filter'):
-            tarball.extractall(self.path)
-            return self.path
-
-        _filter = tarfile.data_filter
+        _filter: typing.Callable[[tarfile.TarInfo, str], tarfile.TarInfo | None] = tarfile.fully_trusted_filter
         if map_only:
 
             def map_only_filter(member: tarfile.TarInfo, destpath: str) -> tarfile.TarInfo | None:
-                if not tarfile.data_filter(member, destpath):
-                    return None
                 if not member.name.startswith('map/'):
                     return None
-                return member
+                return tarfile.fully_trusted_filter(member, destpath)
 
             _filter = map_only_filter
 

@@ -19,7 +19,6 @@ from arena_people_msgs.msg import Pedestrian, Pedestrians
 from arena_rclpy_mixins import ArenaMixinNode
 from arena_rclpy_mixins.Async import ClientWrapper
 from arena_rclpy_mixins.shared import Namespace
-from arena_simulation_setup.tree.assets.Object import ObjectIdentifier
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from launch import LaunchDescription
 from ros_gz_interfaces.msg import Entity as EntityMsg
@@ -32,9 +31,7 @@ from task_generator.shared import (
     Entity,
     Floor,
     FrameNamespace,
-    Model,
     ModelType,
-    ModelWrapper,
     Obstacle,
     Pose,
     Robot,
@@ -298,7 +295,7 @@ class GazeboSimulator(BaseSim):
                         _loader_args = {**entity.asdict(), 'sim_path': entity.sim_path}
                         model = await (await entity.model.resolve()).model.get(ModelType.URDF, loader_args=_loader_args)
                     else:
-                        model = await (await entity.model.resolve()).get(ModelType.SDF)
+                        model = await (await entity.model.resolve()).model.get(ModelType.SDF)
                 except Exception:
                     self._logger.warning(f"Failed to resolve model for entity {entity.name}")
                     self._logger.debug(traceback.format_exc())
@@ -335,39 +332,37 @@ class GazeboSimulator(BaseSim):
                         return False
 
                 else:
-                    # no direct path available, use ros_gz_bridge
-
-                    # Create spawn request
-                    request = SpawnEntity.Request()
-                    request.entity_factory = EntityFactory()
-                    request.entity_factory.name = entity.sim_path
-                    model_description = model.description
-                    request.entity_factory.sdf = model_description
-
-                    # Set pose
-                    request.entity_factory.pose = entity.pose.to_msg()
-
-                    self._logger.debug(f"Spawn position for {entity.name}: x={entity.pose.position.x}, y={entity.pose.position.y}")
-
-                    self._logger.debug(f"Sending spawn request for {entity.name}")
-                    result = await self._service_spawn_entity.call_timeout(request)
-
-                    if result is None:
-                        self._logger.error(f"Spawn service call failed for {entity.name}")
-                        return False
-
-                    self._logger.debug(f"Spawn result for {entity.name}: {result.success}")
-
-                    if result.success:
+                    ok = await self._spawn_sdf(entity.sim_path, model.description, entity.pose)
+                    if ok:
                         self.entities[entity.name] = entity
-                        self._spawned_names.add(entity.sim_path)
-
-                    return result.success
+                    return ok
 
             except Exception as e:
                 self._logger.error(f"Error spawning entity {entity.name}: {str(e)}")
                 traceback.print_exc()
                 return False
+
+    async def _spawn_sdf(self, name: str, sdf: str, pose: Pose) -> bool:
+        """Spawn from an in-memory SDF via ros_gz_bridge. Caller holds self._semaphore."""
+        request = SpawnEntity.Request()
+        request.entity_factory = EntityFactory()
+        request.entity_factory.name = name
+        request.entity_factory.sdf = sdf
+        request.entity_factory.pose = pose.to_msg()
+
+        try:
+            result = await self._service_spawn_entity.call_timeout(request)
+        except Exception as e:
+            self._logger.error(f"Spawn service call raised for {name}: {e}")
+            return False
+
+        if result is None:
+            self._logger.error(f"Spawn service call failed for {name}")
+            return False
+
+        if result.success:
+            self._spawned_names.add(name)
+        return result.success
 
     async def _delete_entity(self, sim_path: str, entity_type: int = EntityMsg.MODEL) -> bool:
         async with self._semaphore:
@@ -416,47 +411,22 @@ class GazeboSimulator(BaseSim):
                 return False
 
     async def spawn_walls(self, walls: Sequence[Wall]) -> bool:
-        await self.remove_world()  # Clear existing walls
-        for wall in walls:  # only walls, ignore obstacles
+        await self.remove_world()
+        for wall in walls:
             wall_name = self._realizer.realize(f"wall_{next(self._wall_counter)}")
-            wall_height = 2.0  # Wall height in meters
-            wall_thickness = 0.05  # Wall thickness in meters
-            base_position = (0, 0, 0)  # Offset the wall to (10, 10, 0)
-
-            self._logger.debug(f"Attempting to spawn wall: {wall_name} from {wall.start} to {wall.end}")
-
-            # Generate the SDF string for walls
             wall_sdf = _generate_wall_sdf(
                 name=wall_name,
                 walls=[wall],
-                height=wall_height,
-                thickness=wall_thickness,
-                base_position=base_position,
+                height=2.0,
+                thickness=0.05,
+                base_position=(0, 0, 0),
             )
-
             if not wall_sdf:
                 self._logger.error(f"Failed to generate SDF for wall: {wall_name}")
                 continue
-
-            entity = Entity(
-                pose=Pose(),
-                model=ObjectIdentifier.inline(
-                    ModelWrapper.from_model(
-                        Model(
-                            type=ModelType.SDF,
-                            name=wall_name,
-                            description=wall_sdf,
-                            path=None,
-                        )
-                    )
-                ),
-                name=wall_name,
-                extra={},
-            )
-
-            await self._spawn_entity(entity)
+            async with self._semaphore:
+                await self._spawn_sdf(wall_name, wall_sdf, Pose())
             self._walls_entities.append(wall_name)
-
         return True
 
     async def remove_world(self) -> bool:

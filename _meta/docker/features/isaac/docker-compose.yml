@@ -26,7 +26,7 @@ services:
       - ARENA_ROS_DISTRO
       - HOST_UID
       - HOST_ARENA_WS_DIR
-      - ROS_DOMAIN_ID
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-1}
       - LLM_API_ENDPOINT
     env_file:
       - .env

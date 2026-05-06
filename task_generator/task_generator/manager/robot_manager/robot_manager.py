@@ -238,7 +238,7 @@ class RobotManager(NodeInterface):
         if Utils.get_arena_type() == Constants.ArenaType.TRAINING:
             return Namespace(f"{self._namespace}{self._namespace}_{self.model_name}")
 
-        return self._namespace(self.name)
+        return self._namespace(self._robot.sim_path)
 
     @property
     async def is_done(self) -> bool:

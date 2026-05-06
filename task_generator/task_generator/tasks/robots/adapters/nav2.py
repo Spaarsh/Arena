@@ -94,7 +94,7 @@ class Nav2Adapter(Adapter):
         robot: RobotManager,
         reset_distance: float = -1.0,
     ) -> bool:
-        node_name = robot.node.service_namespace(robot.name, "local_costmap/local_costmap")
+        node_name = robot.namespace("local_costmap/local_costmap")
 
         if reset_distance < 0:
             srv_name = os.path.abspath(node_name("../clear_entirely_local_costmap"))

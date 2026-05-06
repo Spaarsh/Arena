@@ -15,6 +15,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     pipx \
     python3-colcon-common-extensions \
     python3-rosdep \
+    libncurses-dev \
+    libncursesw5-dev \
     sudo \
     ros-jazzy-rmw-cyclonedds-cpp
 
